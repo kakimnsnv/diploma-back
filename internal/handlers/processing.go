@@ -67,7 +67,7 @@ func UploadImage(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc 
 		}
 
 		// Create processing job
-		job := models.ProcessingJob{
+		job := &models.ProcessingJob{
 			UserID:           userID,
 			OriginalImageURL: objectName,
 			Status:           "processing",
@@ -79,7 +79,7 @@ func UploadImage(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc 
 		}
 
 		// Process in goroutine
-		go processImageAsync(db, &job, minioClient)
+		go processImageAsync(db, job, minioClient)
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Processing started",
