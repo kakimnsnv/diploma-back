@@ -5,6 +5,7 @@ import (
 	"diploma-back/internal/database"
 	"diploma-back/internal/handlers"
 	"diploma-back/internal/middleware"
+	"diploma-back/internal/storage"
 	"log"
 	"os"
 
@@ -29,6 +30,11 @@ func main() {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
+	minioClient, err := storage.NewMinIOClient()
+	if err != nil {
+		log.Fatal("Failed to initialize MinIO client:", err)
+	}
+
 	// Initialize Gin router
 	r := gin.Default()
 
@@ -48,11 +54,11 @@ func main() {
 	protected.Use(middleware.AuthMiddleware())
 	{
 		protected.GET("/profile", handlers.GetProfile(db))
-		protected.POST("/upload", handlers.UploadImage(db))
+		protected.POST("/upload", handlers.UploadImage(db, minioClient))
 		// protected.POST("/process", handlers.ProcessImage(db))
-		protected.GET("/results/:id", handlers.GetResult(db))
-		protected.GET("/results/:id/download", handlers.DownloadResult(db))
-		protected.GET("/history", handlers.GetHistory(db))
+		protected.GET("/results/:id", handlers.GetResult(db, minioClient))
+		protected.GET("/results/:id/download", handlers.DownloadResult(db, minioClient))
+		protected.GET("/history", handlers.GetHistory(db, minioClient))
 	}
 
 	// Get port from env or use default

@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func UploadImage(db *gorm.DB) gin.HandlerFunc {
+func UploadImage(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetUint("userID")
 
@@ -51,13 +51,6 @@ func UploadImage(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Initialize MinIO client
-		minioClient, err := storage.NewMinIOClient()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to storage"})
-			return
-		}
-
 		// Upload to MinIO
 		ctx := context.Background()
 		objectName := fmt.Sprintf("users/%d/original/%s", userID, filename)
@@ -86,7 +79,7 @@ func UploadImage(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Process in goroutine
-		go processImageAsync(db, &job)
+		go processImageAsync(db, &job, minioClient)
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Processing started",
@@ -136,21 +129,12 @@ func UploadImage(db *gorm.DB) gin.HandlerFunc {
 // 	}
 // }
 
-func processImageAsync(db *gorm.DB, job *models.ProcessingJob) {
+func processImageAsync(db *gorm.DB, job *models.ProcessingJob, minioClient *storage.MinIOClient) {
 	ctx := context.Background()
-
-	// Initialize MinIO client
-	minioClient, err := storage.NewMinIOClient()
-	if err != nil {
-		job.Status = "failed"
-		job.ErrorMessage = fmt.Sprintf("Storage error: %s", err.Error())
-		db.Save(job)
-		return
-	}
 
 	// Download original image from MinIO
 	tempImagePath := filepath.Join("/tmp", fmt.Sprintf("img_%d_%s", job.ID, uuid.New().String()))
-	err = minioClient.DownloadFile(ctx, job.OriginalImageURL, tempImagePath)
+	err := minioClient.DownloadFile(ctx, job.OriginalImageURL, tempImagePath)
 	if err != nil {
 		job.Status = "failed"
 		job.ErrorMessage = fmt.Sprintf("Failed to download image: %s", err.Error())
@@ -227,7 +211,7 @@ func processImageAsync(db *gorm.DB, job *models.ProcessingJob) {
 	db.Save(job)
 }
 
-func GetResult(db *gorm.DB) gin.HandlerFunc {
+func GetResult(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		jobID := c.Param("id")
 		userID := c.GetUint("userID")
@@ -246,26 +230,22 @@ func GetResult(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if job.Status == "completed" {
-			// Generate presigned URLs for download
-			minioClient, err := storage.NewMinIOClient()
-			if err == nil {
-				ctx := context.Background()
+			ctx := context.Background()
 
-				if job.ResultImageURL != "" {
-					url, err := minioClient.GetPresignedURL(ctx, job.ResultImageURL)
-					if err != nil {
-						fmt.Printf("error: %v", err)
-					}
-					response["result_image_url"] = url
+			if job.ResultImageURL != "" {
+				url, err := minioClient.GetPresignedURL(ctx, job.ResultImageURL)
+				if err != nil {
+					fmt.Printf("error: %v", err)
 				}
+				response["result_image_url"] = url
+			}
 
-				if job.OriginalImageURL != "" {
-					url, err := minioClient.GetPresignedURL(ctx, job.OriginalImageURL)
-					if err != nil {
-						fmt.Printf("error: %v", err)
-					}
-					response["original_image_url"] = url
+			if job.OriginalImageURL != "" {
+				url, err := minioClient.GetPresignedURL(ctx, job.OriginalImageURL)
+				if err != nil {
+					fmt.Printf("error: %v", err)
 				}
+				response["original_image_url"] = url
 			}
 		}
 
@@ -277,16 +257,10 @@ func GetResult(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func GetHistory(db *gorm.DB) gin.HandlerFunc {
+func GetHistory(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetUint("userID")
 		ctx := context.Background()
-
-		minioClient, err := storage.NewMinIOClient()
-		if err != nil {
-			c.JSON(500, err.Error())
-			return
-		}
 
 		var jobs []*models.ProcessingJob
 		if err := db.Where("user_id = ?", userID).Order("created_at DESC").Limit(50).Find(&jobs).Error; err != nil {
@@ -316,7 +290,7 @@ func GetHistory(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func DownloadResult(db *gorm.DB) gin.HandlerFunc {
+func DownloadResult(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		jobID := c.Param("id")
 		userID := c.GetUint("userID")
@@ -333,18 +307,12 @@ func DownloadResult(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		minioClient, err := storage.NewMinIOClient()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Storage error"})
-			return
-		}
-
 		ctx := context.Background()
 
 		if format == "png" {
 			// Download NII, convert to PNG, serve
 			tempNiiPath := filepath.Join("/tmp", fmt.Sprintf("nii_%s.nii", uuid.New().String()))
-			err = minioClient.DownloadFile(ctx, job.OutputNiiPath, tempNiiPath)
+			err := minioClient.DownloadFile(ctx, job.OutputNiiPath, tempNiiPath)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to download result"})
 				return
