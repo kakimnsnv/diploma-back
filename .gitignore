@@ -3,4 +3,5 @@ uploads/*
 .env
 *.log
 scripts/venv
+scripts/.venv
 .idea

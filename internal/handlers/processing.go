@@ -228,9 +228,9 @@ func GetResult(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
 			"created_at": job.CreatedAt,
 			"updated_at": job.UpdatedAt,
 		}
+		ctx := context.Background()
 
 		if job.Status == "completed" {
-			ctx := context.Background()
 
 			if job.ResultImageURL != "" {
 				url, err := minioClient.GetPresignedURL(ctx, job.ResultImageURL)
@@ -239,14 +239,13 @@ func GetResult(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
 				}
 				response["result_image_url"] = url
 			}
-
-			if job.OriginalImageURL != "" {
-				url, err := minioClient.GetPresignedURL(ctx, job.OriginalImageURL)
-				if err != nil {
-					fmt.Printf("error: %v", err)
-				}
-				response["original_image_url"] = url
+		}
+		if job.OriginalImageURL != "" {
+			url, err := minioClient.GetPresignedURL(ctx, job.OriginalImageURL)
+			if err != nil {
+				fmt.Printf("error: %v", err)
 			}
+			response["original_image_url"] = url
 		}
 
 		if job.Status == "failed" {

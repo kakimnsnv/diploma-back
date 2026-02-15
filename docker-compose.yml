@@ -1,6 +1,30 @@
 version: "3.8"
 
 services:
+#  app:
+#    image: your_dockerhub_username/medical-app:latest
+#    container_name: medical_imaging_app
+#    ports:
+#      - "8080:8080"
+#    environment:
+#      - DB_HOST=postgres
+#      - DB_PORT=5432
+#      - DB_USER=postgres
+#      - DB_PASSWORD=password
+#      - DB_NAME=diploma_db
+#      - PORT=8080
+#      - JWT_SECRET=change-this-secret-for-dev
+#      - MINIO_ENDPOINT=localhost:9000
+#      - MINIO_ACCESS_KEY=minioadmin
+#      - MINIO_SECRET_KEY=minioadmin
+#      - MINIO_BUCKET=medical-imaging
+#      - MINIO_USE_SSL=false
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
+#      minio:
+#        condition: service_healthy
+
   postgres:
     image: postgres:15-alpine
     container_name: medical_imaging_db
@@ -9,7 +33,7 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: diploma_db
     ports:
-      - "${DB_PORT}:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,8 +56,8 @@ services:
       - minio_data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
+      interval: 10s
+      timeout: 5s
       retries: 3
 
 volumes:
