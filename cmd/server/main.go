@@ -2,25 +2,19 @@
 package main
 
 import (
+	"diploma-back/internal/config"
 	"diploma-back/internal/database"
 	"diploma-back/internal/handlers"
-	"diploma-back/internal/middleware"
 	"diploma-back/internal/storage"
+	"diploma-back/pkg/imaging"
 	"log"
-	"os"
-
-	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Load environment variables
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found")
-	}
+	cfg := config.Inst()
 
 	// Initialize database
-	db, err := database.InitDB()
+	db, err := database.InitDB(&cfg.DB)
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
@@ -30,45 +24,18 @@ func main() {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
-	minioClient, err := storage.NewMinIOClient()
+	minioClient, err := storage.NewMinIOClient(&cfg.MinIO)
 	if err != nil {
 		log.Fatal("Failed to initialize MinIO client:", err)
 	}
 
-	// Initialize Gin router
-	r := gin.Default()
+	imgng := imaging.NewImaging(cfg.MODEL_URL)
 
-	// CORS middleware
-	r.Use(middleware.CORSMiddleware())
+	handlers := handlers.NewHandler(cfg, db, minioClient, imgng)
+	handlers.InitRoutes()
 
-	// Public routes
-	public := r.Group("/api")
-	{
-		public.POST("/register", handlers.Register(db))
-		public.POST("/login", handlers.Login(db))
-		public.POST("/logout", handlers.Logout)
-	}
-
-	// Protected routes
-	protected := r.Group("/api")
-	protected.Use(middleware.AuthMiddleware())
-	{
-		protected.GET("/profile", handlers.GetProfile(db))
-		protected.POST("/upload", handlers.UploadImage(db, minioClient))
-		// protected.POST("/process", handlers.ProcessImage(db))
-		protected.GET("/results/:id", handlers.GetResult(db, minioClient))
-		protected.GET("/results/:id/download", handlers.DownloadResult(db, minioClient))
-		protected.GET("/history", handlers.GetHistory(db, minioClient))
-	}
-
-	// Get port from env or use default
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	log.Printf("Server starting on port %s", port)
-	if err := r.Run(":" + port); err != nil {
+	log.Printf("Server starting on port %s", cfg.App.Port)
+	if err := handlers.Start(); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }

@@ -3,13 +3,14 @@ package middleware
 
 import (
 	"diploma-back/internal/auth"
+	"diploma-back/internal/config"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddleware(cfg *config.JWTConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := ""
 
@@ -35,7 +36,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			token = parts[1]
 		}
 
-		claims, err := auth.ValidateToken(token)
+		claims, err := auth.ValidateToken(cfg, token)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
@@ -55,6 +56,7 @@ func CORSMiddleware() gin.HandlerFunc {
 		// List of allowed origins
 		allowedOrigins := []string{
 			"http://localhost:3000",
+			"http://localhost:3001",
 			"http://127.0.0.1:3000",
 			"https://mri-ai.nsnv.kz",
 		}

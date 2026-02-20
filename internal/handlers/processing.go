@@ -2,343 +2,233 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"diploma-back/internal/config"
+	"diploma-back/internal/middleware"
 	"diploma-back/internal/models"
 	"diploma-back/internal/storage"
 	"diploma-back/pkg/imaging"
+	"encoding/base64"
 	"fmt"
+	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-func UploadImage(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userID := c.GetUint("userID")
+type Handler struct {
+	handler     *gin.Engine
+	Config      *config.Config
+	DB          *gorm.DB
+	MinIOClient *storage.MinIOClient
+	Imaging     *imaging.Imaging
+}
 
-		file, err := c.FormFile("image")
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "No image file provided"})
-			return
-		}
-
-		// Validate file type
-		ext := filepath.Ext(file.Filename)
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Only JPEG and PNG files are allowed"})
-			return
-		}
-
-		// Generate unique filename
-		uniqueID := uuid.New().String()
-		filename := fmt.Sprintf("%s%s", uniqueID, ext)
-		tempPath := filepath.Join("/tmp", filename)
-
-		// Save file temporarily
-		if err := c.SaveUploadedFile(file, tempPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-			return
-		}
-		defer os.Remove(tempPath) // Clean up temp file
-
-		// Validate image
-		if err := imaging.ValidateImageFile(tempPath); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid image: %s", err.Error())})
-			return
-		}
-
-		// Upload to MinIO
-		ctx := context.Background()
-		objectName := fmt.Sprintf("users/%d/original/%s", userID, filename)
-
-		contentType := "image/jpeg"
-		if ext == ".png" {
-			contentType = "image/png"
-		}
-
-		_, err = minioClient.UploadFile(ctx, objectName, tempPath, contentType)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to storage"})
-			return
-		}
-
-		// Create processing job
-		job := &models.ProcessingJob{
-			UserID:           userID,
-			OriginalImageURL: objectName,
-			Status:           "processing",
-		}
-
-		if err := db.Create(&job).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create processing job"})
-			return
-		}
-
-		// Process in goroutine
-		go processImageAsync(db, job, minioClient)
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Processing started",
-			"job_id":  job.ID,
-			"status":  "processing",
-		})
+func NewHandler(cfg *config.Config, db *gorm.DB, minioClient *storage.MinIOClient, imgng *imaging.Imaging) *Handler {
+	return &Handler{
+		Config:      cfg,
+		DB:          db,
+		MinIOClient: minioClient,
+		Imaging:     imgng,
+		handler:     gin.Default(),
 	}
 }
 
-// func ProcessImage(db *gorm.DB) gin.HandlerFunc {
-// 	return func(c *gin.Context) {
-// 		var req struct {
-// 			JobID uint `json:"job_id" binding:"required"`
-// 		}
+func (h *Handler) InitRoutes() {
+	// CORS middleware
+	h.handler.Use(middleware.CORSMiddleware())
 
-// 		if err := c.ShouldBindJSON(&req); err != nil {
-// 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-// 			return
-// 		}
-
-// 		userID := c.GetUint("userID")
-
-// 		// Get job
-// 		var job models.ProcessingJob
-// 		if err := db.Where("id = ? AND user_id = ?", req.JobID, userID).First(&job).Error; err != nil {
-// 			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
-// 			return
-// 		}
-
-// 		if job.Status != "uploaded" && job.Status != "failed" {
-// 			c.JSON(http.StatusBadRequest, gin.H{"error": "Job already processing or completed"})
-// 			return
-// 		}
-
-// 		// Update status
-// 		job.Status = "processing"
-// 		db.Save(&job)
-
-// 		// Process in goroutine
-// 		go processImageAsync(db, &job)
-
-// 		c.JSON(http.StatusOK, gin.H{
-// 			"message": "Processing started",
-// 			"job_id":  job.ID,
-// 			"status":  "processing",
-// 		})
-// 	}
-// }
-
-func processImageAsync(db *gorm.DB, job *models.ProcessingJob, minioClient *storage.MinIOClient) {
-	ctx := context.Background()
-
-	// Download original image from MinIO
-	tempImagePath := filepath.Join("/tmp", fmt.Sprintf("img_%d_%s", job.ID, uuid.New().String()))
-	err := minioClient.DownloadFile(ctx, job.OriginalImageURL, tempImagePath)
-	if err != nil {
-		job.Status = "failed"
-		job.ErrorMessage = fmt.Sprintf("Failed to download image: %s", err.Error())
-		db.Save(job)
-		return
+	// Public routes
+	public := h.handler.Group("/api")
+	{
+		public.POST("/register", h.Register)
+		public.POST("/login", h.Login)
+		public.POST("/logout", h.Logout)
 	}
-	defer os.Remove(tempImagePath)
 
-	// Convert image to NII
-	inputNiiPath, err := imaging.ConvertToNii(tempImagePath)
-	if err != nil {
-		job.Status = "failed"
-		job.ErrorMessage = fmt.Sprintf("Conversion error: %s", err.Error())
-		db.Save(job)
-		return
+	// Protected routes
+	protected := h.handler.Group("/api")
+	protected.Use(middleware.AuthMiddleware(&h.Config.JWT))
+	{
+		protected.GET("/profile", h.GetProfile)
+		protected.POST("/upload", h.UploadImage)
+		protected.GET("/results/:id", h.GetResult)
+		protected.GET("/history", h.GetHistory)
 	}
-	defer os.Remove(inputNiiPath)
+}
 
-	// Upload input NII to MinIO
-	inputNiiObjectName := fmt.Sprintf("users/%d/input/%s.nii", job.UserID, uuid.New().String())
-	_, err = minioClient.UploadFile(ctx, inputNiiObjectName, inputNiiPath, "application/octet-stream")
+func (h *Handler) Start() error {
+	return h.handler.Run(":" + h.Config.App.Port)
+}
+
+func (h *Handler) UploadImage(c *gin.Context) {
+	userID := c.GetUint("userID")
+
+	// Get file
+	file, err := c.FormFile("image")
 	if err != nil {
-		job.Status = "failed"
-		job.ErrorMessage = fmt.Sprintf("Failed to upload input NII: %s", err.Error())
-		db.Save(job)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No image file provided"})
 		return
 	}
 
-	job.InputNiiPath = inputNiiObjectName
-	db.Save(job)
+	// Validate file type
+	ext := filepath.Ext(file.Filename)
+	if ext != ".nii" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only NII files are allowed"})
+		return
+	}
+
+	fileStream, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unexpected error"})
+		return
+	}
+	defer fileStream.Close()
+
+	// Upload to MinIO
+	uniqueID := uuid.New().String()
+	filename := fmt.Sprintf("%s%s", uniqueID, ext)
+	objectName := fmt.Sprintf("users/%d/original/%s", userID, filename)
+	_, err = h.MinIOClient.UploadFile(objectName, fileStream, file.Size, file.Header.Get("Content-Type"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to minio"})
+		return
+	}
+
+	// Create processing job
+	job := &models.ProcessingJob{
+		UserID:       userID,
+		InputNiiPath: objectName,
+		Status:       "processing",
+	}
+
+	if err := h.DB.Create(&job).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create processing job"})
+		return
+	}
+
+	// Process in goroutine
+	go h.processImageAsync(userID, uniqueID, job, file)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Processing started",
+		"job_id":  job.ID,
+		"status":  "processing",
+	})
+}
+
+func (h *Handler) processImageAsync(userID uint, uniqueID string, job *models.ProcessingJob, file *multipart.FileHeader) {
+	fileStream, err := file.Open()
+	if err != nil {
+		job.Status = "failed"
+		job.ErrorMessage = fmt.Sprintf("File error: %s", err.Error())
+		h.DB.Save(job)
+		return
+	}
+	defer fileStream.Close()
 
 	// Call model
-	outputNiiPath, err := imaging.CallModel(inputNiiPath)
+	res, err := h.Imaging.CallModel(file)
 	if err != nil {
 		job.Status = "failed"
 		job.ErrorMessage = fmt.Sprintf("Model error: %s", err.Error())
-		db.Save(job)
-		return
-	}
-	defer os.Remove(outputNiiPath)
-
-	// Upload output NII to MinIO
-	outputNiiObjectName := fmt.Sprintf("users/%d/output/%s.nii", job.UserID, uuid.New().String())
-	_, err = minioClient.UploadFile(ctx, outputNiiObjectName, outputNiiPath, "application/octet-stream")
-	if err != nil {
-		job.Status = "failed"
-		job.ErrorMessage = fmt.Sprintf("Failed to upload output NII: %s", err.Error())
-		db.Save(job)
+		h.DB.Save(job)
 		return
 	}
 
-	pngPath, err := imaging.ConvertNiiToImage(outputNiiPath, "png")
+	decoded, err := base64.StdEncoding.DecodeString(res.ImageBase64)
 	if err != nil {
 		job.Status = "failed"
-		job.ErrorMessage = fmt.Sprintf("Failed to convert NII to PNG: %s", err.Error())
-		db.Save(job)
+		job.ErrorMessage = fmt.Sprintf("Decoding error: %s", err.Error())
+		h.DB.Save(job)
 		return
 	}
-	defer os.Remove(pngPath)
 
-	outputPNGObjectName := fmt.Sprintf("users/%d/outputPNG/%s.png", job.UserID, uuid.New().String())
-	_, err = minioClient.UploadFile(ctx, outputPNGObjectName, pngPath, "application/octet-stream")
+	objectName := fmt.Sprintf("users/%d/result/%s.png", userID, uniqueID)
+	reader := bytes.NewReader(decoded)
+
+	_, err = h.MinIOClient.UploadFile(objectName, reader, reader.Size(), "image/png")
 	if err != nil {
 		job.Status = "failed"
-		job.ErrorMessage = fmt.Sprintf("Failed to upload output PNG: %s", err.Error())
-		db.Save(job)
+		job.ErrorMessage = fmt.Sprintf("Failed to upload result image: %s", err.Error())
+		h.DB.Save(job)
 		return
 	}
 
 	// Update job
-	job.OutputNiiPath = outputNiiObjectName
-	job.ResultImageURL = outputPNGObjectName
+	job.OutputImage = objectName
 	job.Status = "completed"
-	db.Save(job)
+	h.DB.Save(job)
 }
 
-func GetResult(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		jobID := c.Param("id")
-		userID := c.GetUint("userID")
+type ResultResponse struct {
+	ID             uint      `json:"id"`
+	Status         string    `json:"status"`
+	InputNiiURL    string    `json:"input_nii_url"`
+	OutputImageURL string    `json:"output_image_url"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 
-		var job models.ProcessingJob
-		if err := db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
-			return
-		}
+	Error string `json:"error"`
+}
 
-		response := gin.H{
-			"id":         job.ID,
-			"status":     job.Status,
-			"created_at": job.CreatedAt,
-			"updated_at": job.UpdatedAt,
-		}
+func (h *Handler) GetResult(c *gin.Context) {
+	jobID := c.Param("id")
+	userID := c.GetUint("userID")
 
-		if job.Status == "completed" {
-			ctx := context.Background()
-
-			if job.ResultImageURL != "" {
-				url, err := minioClient.GetPresignedURL(ctx, job.ResultImageURL)
-				if err != nil {
-					fmt.Printf("error: %v", err)
-				}
-				response["result_image_url"] = url
-			}
-
-			if job.OriginalImageURL != "" {
-				url, err := minioClient.GetPresignedURL(ctx, job.OriginalImageURL)
-				if err != nil {
-					fmt.Printf("error: %v", err)
-				}
-				response["original_image_url"] = url
-			}
-		}
-
-		if job.Status == "failed" {
-			response["error"] = job.ErrorMessage
-		}
-
-		c.JSON(http.StatusOK, response)
+	var job models.ProcessingJob
+	if err := h.DB.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
+		return
 	}
-}
 
-func GetHistory(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userID := c.GetUint("userID")
+	response := ResultResponse{
+		ID:        job.ID,
+		Status:    job.Status,
+		CreatedAt: job.CreatedAt,
+		UpdatedAt: job.UpdatedAt,
+	}
+
+	if job.Status == "completed" {
 		ctx := context.Background()
 
-		var jobs []*models.ProcessingJob
-		if err := db.Where("user_id = ?", userID).Order("created_at DESC").Limit(50).Find(&jobs).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch history"})
-			return
+		if job.OutputImage != "" {
+			url, err := h.MinIOClient.GetPresignedURL(ctx, job.OutputImage)
+			if err != nil {
+				fmt.Printf("error: %v", err)
+			}
+			response.OutputImageURL = url
 		}
 
-		for _, job := range jobs {
-			if job.ResultImageURL != "" {
-				url, err := minioClient.GetPresignedURL(ctx, job.ResultImageURL)
-				if err != nil {
-					fmt.Printf("error: %v", err)
-				}
-				job.ResultImageURL = url
+		if job.InputNiiPath != "" {
+			url, err := h.MinIOClient.GetPresignedURL(ctx, job.InputNiiPath)
+			if err != nil {
+				fmt.Printf("error: %v", err)
 			}
-
-			if job.OriginalImageURL != "" {
-				url, err := minioClient.GetPresignedURL(ctx, job.OriginalImageURL)
-				if err != nil {
-					fmt.Printf("error: %v", err)
-				}
-				job.OriginalImageURL = url
-			}
+			response.InputNiiURL = url
 		}
-
-		c.JSON(http.StatusOK, jobs)
 	}
+
+	if job.Status == "failed" {
+		response.Error = job.ErrorMessage
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
-func DownloadResult(db *gorm.DB, minioClient *storage.MinIOClient) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		jobID := c.Param("id")
-		userID := c.GetUint("userID")
-		format := c.DefaultQuery("format", "nii") // nii or png
+func (h *Handler) GetHistory(c *gin.Context) {
+	userID := c.GetUint("userID")
 
-		var job models.ProcessingJob
-		if err := db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
-			return
-		}
-
-		if job.Status != "completed" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Job not completed"})
-			return
-		}
-
-		ctx := context.Background()
-
-		if format == "png" {
-			// Download NII, convert to PNG, serve
-			tempNiiPath := filepath.Join("/tmp", fmt.Sprintf("nii_%s.nii", uuid.New().String()))
-			err := minioClient.DownloadFile(ctx, job.OutputNiiPath, tempNiiPath)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to download result"})
-				return
-			}
-			defer os.Remove(tempNiiPath)
-
-			pngPath, err := imaging.ConvertNiiToImage(tempNiiPath, "png")
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to convert to PNG"})
-				return
-			}
-			defer os.Remove(pngPath)
-
-			c.File(pngPath)
-		} else {
-			// Serve NII directly
-			obj, err := minioClient.GetObject(ctx, job.OutputNiiPath)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get result"})
-				return
-			}
-			defer obj.Close()
-
-			c.Header("Content-Type", "application/octet-stream")
-			c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=result_%d.nii", job.ID))
-			c.DataFromReader(http.StatusOK, -1, "application/octet-stream", obj, nil)
-		}
+	var jobs []*models.ProcessingJob
+	if err := h.DB.Where("user_id = ?", userID).Order("created_at DESC").Limit(50).Find(&jobs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch history"})
+		return
 	}
+
+	c.JSON(http.StatusOK, jobs)
 }
