@@ -22,6 +22,7 @@ type User struct {
 type ProcessingJob struct {
 	ID           uint           `gorm:"primarykey" json:"id"`
 	UserID       uint           `gorm:"not null" json:"user_id"`
+	Name         string         `json:"name"`
 	InputNiiPath string         `json:"input_nii_path"`
 	OutputImage  string         `json:"output_image"`
 	Status       string         `gorm:"default:'pending'" json:"status"` // pending, processing, completed, failed

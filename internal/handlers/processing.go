@@ -102,6 +102,7 @@ func (h *Handler) UploadImage(c *gin.Context) {
 	// Create processing job
 	job := &models.ProcessingJob{
 		UserID:       userID,
+		Name:         file.Filename,
 		InputNiiPath: objectName,
 		Status:       "processing",
 	}
@@ -168,6 +169,7 @@ func (h *Handler) processImageAsync(userID uint, uniqueID string, job *models.Pr
 type ResultResponse struct {
 	ID             uint      `json:"id"`
 	Status         string    `json:"status"`
+	Name           string    `json:"name"`
 	InputNiiURL    string    `json:"input_nii_url"`
 	OutputImageURL string    `json:"output_image_url"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -189,6 +191,7 @@ func (h *Handler) GetResult(c *gin.Context) {
 	response := ResultResponse{
 		ID:        job.ID,
 		Status:    job.Status,
+		Name:      job.Name,
 		CreatedAt: job.CreatedAt,
 		UpdatedAt: job.UpdatedAt,
 	}
