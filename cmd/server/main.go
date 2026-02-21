@@ -12,7 +12,6 @@ import (
 
 func main() {
 	cfg := config.Inst()
-
 	// Initialize database
 	db, err := database.InitDB(&cfg.DB)
 	if err != nil {

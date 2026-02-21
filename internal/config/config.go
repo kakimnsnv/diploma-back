@@ -4,6 +4,8 @@ import (
 	"log"
 	"sync"
 
+	"github.com/joho/godotenv"
+
 	"github.com/caarlos0/env/v11"
 )
 
@@ -51,7 +53,11 @@ type (
 // It loads the configuration from environment variables, using a .env file if present.
 func Inst() *Config {
 	once.Do(func() {
-		err := env.Parse(&cfg)
+		err := godotenv.Load()
+		if err != nil {
+			log.Fatal("Error loading .env file", err)
+		}
+		err = env.Parse(&cfg)
 		if err != nil {
 			log.Fatalf("Failed to parse environment variables: %v", err)
 		}
