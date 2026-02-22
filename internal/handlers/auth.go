@@ -20,6 +20,11 @@ func (h *Handler) InitAuthRoutes() {
 		public.POST("/login", h.Login)
 		public.POST("/logout", h.Logout)
 	}
+	protected := h.handler.Group("/api")
+	protected.Use(middleware.AuthMiddleware(&h.Config.JWT))
+	{
+		protected.PUT("/user/profile", h.UpdateProfile)
+	}
 }
 
 func (h *Handler) Register(c *gin.Context) {
@@ -73,4 +78,19 @@ func (h *Handler) GetProfile(c *gin.Context) {
 func (h *Handler) Logout(c *gin.Context) {
 	c.SetCookie("auth_token", "", -1, "/", "localhost:3000", false, true)
 	c.Status(http.StatusOK)
+}
+
+func (h *Handler) UpdateProfile(c *gin.Context) {
+	userID := c.GetUint("userID")
+	var req models.UpdateUser
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	err := h.Services.UserService.UpdateProfile(userID, req)
+	if err != nil {
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "updated"})
 }

@@ -16,8 +16,18 @@ type User struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 	Role      string         `gorm:"default:'user'" json:"role"`
+	Phone     string         `json:"phone"`
+	City      string         `json:"city"`
+	Country   string         `json:"country"`
 
 	ProcessingJobs []ProcessingJob `gorm:"foreignKey:UserID" json:"processing_jobs,omitempty"`
+}
+
+type UpdateUser struct {
+	Name    string `json:"name"`
+	Phone   string `json:"phone"`
+	City    string `json:"city"`
+	Country string `json:"country"`
 }
 
 type ProcessingJob struct {

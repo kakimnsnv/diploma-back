@@ -77,3 +77,12 @@ func (s *UserService) GetProfile(userID uint) (*models.User, error) {
 	}
 	return &user, nil
 }
+
+func (s *UserService) UpdateProfile(userID uint, req models.UpdateUser) error {
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return err
+	}
+	s.db.Model(&models.User{}).Where("id = ?", userID).Updates(req)
+	return nil
+}
