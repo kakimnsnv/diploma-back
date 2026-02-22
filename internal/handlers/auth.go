@@ -2,119 +2,68 @@
 package handlers
 
 import (
-	"diploma-back/internal/auth"
+	"diploma-back/internal/middleware"
 	"diploma-back/internal/models"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 )
 
-type RegisterRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
-	Name     string `json:"name" binding:"required"`
-}
+func (h *Handler) InitAuthRoutes() {
+	// CORS middleware
+	h.handler.Use(middleware.CORSMiddleware())
 
-type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
-}
-
-type AuthResponse struct {
-	Token string      `json:"token"`
-	User  models.User `json:"user"`
+	// Public routes
+	public := h.handler.Group("/api")
+	{
+		public.POST("/register", h.Register)
+		public.POST("/login", h.Login)
+		public.POST("/logout", h.Logout)
+	}
 }
 
 func (h *Handler) Register(c *gin.Context) {
-	var req RegisterRequest
+	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Check if user exists
-	var existingUser models.User
-	if err := h.DB.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
-		return
-	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	resp, err := h.Services.UserService.CreateUser(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
-		return
-	}
-
-	// Create user
-	user := models.User{
-		Email:    req.Email,
-		Password: string(hashedPassword),
-		Name:     req.Name,
-	}
-
-	if err := h.DB.Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
-	// Generate token
-	token, err := auth.GenerateToken(&h.Config.JWT, user.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
+	c.SetCookie("auth_token", resp.Token, 86400, "/", "localhost:3000", false, true)
 
-	c.SetCookie("auth_token", token, 86400, "/", "localhost:3000", false, true)
-
-	c.JSON(http.StatusCreated, AuthResponse{
-		Token: token,
-		User:  user,
-	})
+	c.JSON(http.StatusCreated, resp)
 }
 
 func (h *Handler) Login(c *gin.Context) {
-	var req LoginRequest
+	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Find user
-	var user models.User
-	if err := h.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-		return
-	}
-
-	// Check password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-		return
-	}
-
-	// Generate token
-	token, err := auth.GenerateToken(&h.Config.JWT, user.ID)
+	resp, err := h.Services.UserService.Login(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
 
-	c.SetCookie("auth_token", token, 86400, "/", "localhost:3000", false, true)
+	c.SetCookie("auth_token", resp.Token, 86400, "/", "localhost:3000", false, true)
 
-	c.JSON(http.StatusOK, AuthResponse{
-		Token: token,
-		User:  user,
-	})
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) GetProfile(c *gin.Context) {
 	userID := c.GetUint("userID")
 
-	var user models.User
-	if err := h.DB.First(&user, userID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	user, err := h.Services.UserService.GetProfile(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user profile"})
 		return
 	}
 

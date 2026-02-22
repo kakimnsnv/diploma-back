@@ -1,4 +1,3 @@
-// internal/middleware/middleware.go
 package middleware
 
 import (
@@ -45,6 +44,7 @@ func AuthMiddleware(cfg *config.JWTConfig) gin.HandlerFunc {
 
 		// Set user ID in context
 		c.Set("userID", claims.UserID)
+		c.Set("userRole", claims.Role)
 		c.Next()
 	}
 }
@@ -78,5 +78,26 @@ func CORSMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+func RoleMiddleware(roles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userRole, exists := c.Get("userRole")
+		if !exists {
+			c.JSON(http.StatusForbidden, gin.H{"error": "No role found"})
+			c.Abort()
+			return
+		}
+
+		for _, role := range roles {
+			if userRole == role {
+				c.Next()
+				return
+			}
+		}
+
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		c.Abort()
 	}
 }

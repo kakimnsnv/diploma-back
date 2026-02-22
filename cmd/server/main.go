@@ -5,8 +5,10 @@ import (
 	"diploma-back/internal/config"
 	"diploma-back/internal/database"
 	"diploma-back/internal/handlers"
+	"diploma-back/internal/services"
 	"diploma-back/internal/storage"
 	"diploma-back/pkg/imaging"
+	"github.com/gin-gonic/gin"
 	"log"
 )
 
@@ -30,11 +32,15 @@ func main() {
 
 	imgng := imaging.NewImaging(cfg.MODEL_URL)
 
-	handlers := handlers.NewHandler(cfg, db, minioClient, imgng)
+	services := services.NewService(cfg, db, minioClient, imgng)
+
+	engine := gin.Default()
+
+	handlers := handlers.NewHandler(services, cfg, engine)
 	handlers.InitRoutes()
 
 	log.Printf("Server starting on port %s", cfg.App.Port)
-	if err := handlers.Start(); err != nil {
+	if err := engine.Run(":" + cfg.App.Port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }
