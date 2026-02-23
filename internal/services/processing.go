@@ -9,9 +9,10 @@ import (
 	"diploma-back/pkg/imaging"
 	"encoding/base64"
 	"fmt"
+	"mime/multipart"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"mime/multipart"
 )
 
 type ProcessingService struct {
@@ -135,6 +136,15 @@ func (s *ProcessingService) GetResult(jobID string, userID uint) (*models.Result
 		response.Error = job.ErrorMessage
 	}
 	return &response, nil
+}
+
+func (s *ProcessingService) DeleteResult(jobID string, userID uint) error {
+	var job models.ProcessingJob
+	if err := s.db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+		return err
+	}
+
+	return s.db.Delete(&job).Error
 }
 
 func (s *ProcessingService) GetHistory(userID uint) ([]*models.ProcessingJob, error) {

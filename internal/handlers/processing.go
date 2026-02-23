@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"diploma-back/internal/middleware"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
 )
 
 func (h *Handler) InitProcessingRoutes() {
@@ -18,6 +19,7 @@ func (h *Handler) InitProcessingRoutes() {
 		protected.GET("/profile", h.GetProfile)
 		protected.POST("/upload", h.UploadImage)
 		protected.GET("/results/:id", h.GetResult)
+		protected.DELETE("/results/:id", h.DeleteResult)
 		protected.GET("/history", h.GetHistory)
 	}
 }
@@ -63,6 +65,19 @@ func (h *Handler) GetResult(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) DeleteResult(c *gin.Context) {
+	jobID := c.Param("id")
+	userID := c.GetUint("userID")
+
+	err := h.Services.ProcessingService.DeleteResult(jobID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete result"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Result deleted successfully"})
 }
 
 func (h *Handler) GetHistory(c *gin.Context) {
