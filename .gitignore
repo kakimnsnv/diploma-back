@@ -5,3 +5,7 @@ uploads/*
 scripts/venv
 scripts/.venv
 .idea
+postgres_data/
+minio_data/
+mise.toml
+docker-compose.yml
