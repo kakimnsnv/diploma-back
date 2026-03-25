@@ -5,6 +5,7 @@ import (
 	"diploma-back/internal/config"
 	"diploma-back/internal/database"
 	"diploma-back/internal/handlers"
+	"diploma-back/internal/repository"
 	"diploma-back/internal/services"
 	"diploma-back/internal/storage"
 	"diploma-back/pkg/imaging"
@@ -32,7 +33,8 @@ func main() {
 
 	imgng := imaging.NewImaging(cfg.MODEL_URL)
 
-	services := services.NewService(cfg, db, minioClient, imgng)
+	repo := repository.NewRepository(db)
+	services := services.NewService(cfg, repo, minioClient, imgng)
 
 	engine := gin.Default()
 

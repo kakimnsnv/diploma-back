@@ -2,9 +2,9 @@ package services
 
 import (
 	"diploma-back/internal/config"
+	"diploma-back/internal/repository"
 	"diploma-back/internal/storage"
 	"diploma-back/pkg/imaging"
-	"gorm.io/gorm"
 )
 
 type Service struct {
@@ -13,26 +13,21 @@ type Service struct {
 	AdminService      *AdminService
 }
 
-func NewService(config *config.Config, db *gorm.DB, minIOClient *storage.MinIOClient, imaging *imaging.Imaging) *Service {
+func NewService(config *config.Config, repo *repository.Repository, minIOClient *storage.MinIOClient, imaging *imaging.Imaging) *Service {
 	userService := &UserService{
-		db:          db,
-		config:      config,
-		minIOClient: minIOClient,
-		imaging:     imaging,
+		config:   config,
+		userRepo: repo.User,
 	}
 
 	processingService := &ProcessingService{
-		db:          db,
 		config:      config,
+		jobRepo:     repo.Job,
 		minIOClient: minIOClient,
 		imaging:     imaging,
 	}
 
 	adminService := &AdminService{
-		db:          db,
-		config:      config,
-		minIOClient: minIOClient,
-		imaging:     imaging,
+		userRepo: repo.User,
 	}
 
 	return &Service{

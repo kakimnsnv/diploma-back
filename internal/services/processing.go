@@ -5,6 +5,7 @@ import (
 	"context"
 	"diploma-back/internal/config"
 	"diploma-back/internal/models"
+	"diploma-back/internal/repository"
 	"diploma-back/internal/storage"
 	"diploma-back/pkg/imaging"
 	"encoding/base64"
@@ -12,12 +13,11 @@ import (
 	"mime/multipart"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type ProcessingService struct {
 	config      *config.Config
-	db          *gorm.DB
+	jobRepo     *repository.JobRepository
 	minIOClient *storage.MinIOClient
 	imaging     *imaging.Imaging
 }
@@ -37,7 +37,6 @@ func (s *ProcessingService) UploadImage(userID uint, file *multipart.FileHeader,
 		return nil, err
 	}
 
-	// Create a processing job
 	job := &models.ProcessingJob{
 		UserID:       userID,
 		Name:         file.Filename,
@@ -45,11 +44,10 @@ func (s *ProcessingService) UploadImage(userID uint, file *multipart.FileHeader,
 		Status:       "processing",
 	}
 
-	if err := s.db.Create(&job).Error; err != nil {
+	if err := s.jobRepo.Create(job); err != nil {
 		return nil, err
 	}
 
-	// Process in goroutine
 	go s.processImageAsync(userID, uniqueID, job, file)
 	return job, nil
 }
@@ -59,17 +57,16 @@ func (s *ProcessingService) processImageAsync(userID uint, uniqueID string, job 
 	if err != nil {
 		job.Status = "failed"
 		job.ErrorMessage = fmt.Sprintf("File error: %s", err.Error())
-		s.db.Save(job)
+		s.jobRepo.Save(job)
 		return
 	}
 	defer fileStream.Close()
 
-	// Call model
 	res, err := s.imaging.CallModel(file)
 	if err != nil {
 		job.Status = "failed"
 		job.ErrorMessage = fmt.Sprintf("Model error: %s", err.Error())
-		s.db.Save(job)
+		s.jobRepo.Save(job)
 		return
 	}
 
@@ -77,7 +74,7 @@ func (s *ProcessingService) processImageAsync(userID uint, uniqueID string, job 
 	if err != nil {
 		job.Status = "failed"
 		job.ErrorMessage = fmt.Sprintf("Decoding error: %s", err.Error())
-		s.db.Save(job)
+		s.jobRepo.Save(job)
 		return
 	}
 
@@ -88,19 +85,18 @@ func (s *ProcessingService) processImageAsync(userID uint, uniqueID string, job 
 	if err != nil {
 		job.Status = "failed"
 		job.ErrorMessage = fmt.Sprintf("Failed to upload result image: %s", err.Error())
-		s.db.Save(job)
+		s.jobRepo.Save(job)
 		return
 	}
 
-	// Update job
 	job.OutputImage = objectName
 	job.Status = "completed"
-	s.db.Save(job)
+	s.jobRepo.Save(job)
 }
 
 func (s *ProcessingService) GetResult(jobID string, userID uint) (*models.ResultResponse, error) {
-	var job models.ProcessingJob
-	if err := s.db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+	job, err := s.jobRepo.FindByIDAndUserID(jobID, userID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -139,19 +135,13 @@ func (s *ProcessingService) GetResult(jobID string, userID uint) (*models.Result
 }
 
 func (s *ProcessingService) DeleteResult(jobID string, userID uint) error {
-	var job models.ProcessingJob
-	if err := s.db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
+	job, err := s.jobRepo.FindByIDAndUserID(jobID, userID)
+	if err != nil {
 		return err
 	}
-
-	return s.db.Delete(&job).Error
+	return s.jobRepo.Delete(job)
 }
 
 func (s *ProcessingService) GetHistory(userID uint) ([]*models.ProcessingJob, error) {
-	var jobs []*models.ProcessingJob
-	if err := s.db.Where("user_id = ?", userID).Order("created_at DESC").Limit(50).Find(&jobs).Error; err != nil {
-		return nil, err
-	}
-
-	return jobs, nil
+	return s.jobRepo.FindByUserID(userID, 50)
 }

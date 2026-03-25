@@ -1,46 +1,40 @@
 package services
 
 import (
+	"errors"
+
 	"diploma-back/internal/auth"
 	"diploma-back/internal/config"
 	"diploma-back/internal/models"
-	"diploma-back/internal/storage"
-	"diploma-back/pkg/imaging"
+	"diploma-back/internal/repository"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 type UserService struct {
-	config      *config.Config
-	db          *gorm.DB
-	minIOClient *storage.MinIOClient
-	imaging     *imaging.Imaging
+	config   *config.Config
+	userRepo *repository.UserRepository
 }
 
 func (s *UserService) CreateUser(req models.RegisterRequest) (*models.AuthResponse, error) {
-	var existingUser models.User
-	if err := s.db.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
-		return nil, err
+	if existingUser, _ := s.userRepo.FindByEmail(req.Email); existingUser != nil {
+		return nil, errors.New("user already exists")
 	}
 
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create user
 	user := models.User{
 		Email:    req.Email,
 		Password: string(hashedPassword),
 		Name:     req.Name,
 	}
 
-	if err := s.db.Create(&user).Error; err != nil {
+	if err := s.userRepo.Create(&user); err != nil {
 		return nil, err
 	}
 
-	// Generate token
 	token, err := auth.GenerateToken(&s.config.JWT, user.ID, "user")
 	if err != nil {
 		return nil, err
@@ -50,39 +44,30 @@ func (s *UserService) CreateUser(req models.RegisterRequest) (*models.AuthRespon
 }
 
 func (s *UserService) Login(req models.LoginRequest) (*models.AuthResponse, error) {
-	// Find user
-	var user models.User
-	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+	user, err := s.userRepo.FindByEmail(req.Email)
+	if err != nil {
 		return nil, err
 	}
 
-	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		return nil, err
 	}
 
-	// Generate token
 	token, err := auth.GenerateToken(&s.config.JWT, user.ID, user.Role)
 	if err != nil {
 		return nil, err
 	}
-	resp := models.AuthResponse{Token: token, User: user}
+	resp := models.AuthResponse{Token: token, User: *user}
 	return &resp, nil
 }
 
 func (s *UserService) GetProfile(userID uint) (*models.User, error) {
-	var user models.User
-	if err := s.db.First(&user, userID).Error; err != nil {
-		return nil, err
-	}
-	return &user, nil
+	return s.userRepo.FindByID(userID)
 }
 
 func (s *UserService) UpdateProfile(userID uint, req models.UpdateUser) error {
-	var user models.User
-	if err := s.db.First(&user, userID).Error; err != nil {
+	if _, err := s.userRepo.FindByID(userID); err != nil {
 		return err
 	}
-	s.db.Model(&models.User{}).Where("id = ?", userID).Updates(req)
-	return nil
+	return s.userRepo.Update(userID, req)
 }
