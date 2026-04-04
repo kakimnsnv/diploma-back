@@ -35,7 +35,7 @@ type ModelResponse struct {
 	ImageBase64     string `json:"image_base64"`
 }
 
-// CallModel sends NII file to your model and gets the result
+// CallModel sends NII file to  model and gets the result
 func (i *Imaging) CallModel(file *multipart.FileHeader) (*ModelResponse, error) {
 	fileStream, err := file.Open()
 	if err != nil {

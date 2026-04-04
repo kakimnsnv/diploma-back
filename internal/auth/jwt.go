@@ -10,9 +10,9 @@ import (
 )
 
 type Claims struct {
-	UserID uint   `json:"user_id"`
-	Role   string `json:"role"`
-	jwt.RegisteredClaims
+	UserID               uint   `json:"user_id"`
+	Role                 string `json:"role"` // "user" or "admin"
+	jwt.RegisteredClaims        // ExpiresAt: 24h
 }
 
 func GenerateToken(cfg *config.JWTConfig, userID uint, role string) (string, error) {

@@ -37,18 +37,16 @@ func (s *ProcessingService) UploadImage(userID uint, file *multipart.FileHeader,
 		return nil, err
 	}
 
+	// Listing 2.X — Non-blocking inference dispatch
 	job := &models.ProcessingJob{
 		UserID:       userID,
-		Name:         file.Filename,
 		InputNiiPath: objectName,
 		Status:       "processing",
 	}
-
-	if err := s.jobRepo.Create(job); err != nil {
-		return nil, err
-	}
+	s.jobRepo.Create(job) // persist before the goroutine starts
 
 	go s.processImageAsync(userID, uniqueID, job, file)
+	// HTTP handler returns job.ID immediately
 	return job, nil
 }
 
