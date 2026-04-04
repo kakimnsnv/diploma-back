@@ -8,6 +8,8 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    volumes:
+      - ./.env:/root/.env
     depends_on:
       postgres:
         condition: service_healthy
