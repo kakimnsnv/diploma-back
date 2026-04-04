@@ -55,6 +55,20 @@ func (m *MinIOClient) GetPresignedURL(ctx context.Context, objectName string) (s
 	return url.String(), nil
 }
 
+func (m *MinIOClient) DownloadFile(objectName string) ([]byte, error) {
+	obj, err := m.client.GetObject(context.Background(), m.bucket, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object: %w", err)
+	}
+	defer obj.Close()
+
+	data, err := io.ReadAll(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object: %w", err)
+	}
+	return data, nil
+}
+
 func (m *MinIOClient) UploadFile(objectName string, fileStream io.Reader, size int64, contentType string) (info minio.UploadInfo, err error) {
 	return m.client.PutObject(
 		context.TODO(),

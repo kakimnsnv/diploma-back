@@ -20,10 +20,11 @@ func NewService(config *config.Config, repo *repository.Repository, minIOClient 
 	}
 
 	processingService := &ProcessingService{
-		config:      config,
-		jobRepo:     repo.Job,
-		minIOClient: minIOClient,
-		imaging:     imaging,
+		config:             config,
+		jobRepo:            repo.Job,
+		classificationRepo: repo.Classification,
+		minIOClient:        minIOClient,
+		imaging:            imaging,
 	}
 
 	adminService := &AdminService{

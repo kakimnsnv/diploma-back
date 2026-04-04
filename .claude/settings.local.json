@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "WebFetch(domain:smithery.ai)",
+      "Bash(npx -y @anthropic-ai/claude-code mcp add upstash/context7-mcp -- npx -y @smithery/cli@latest run upstash/context7-mcp)",
+      "Bash(smithery mcp:*)",
+      "Bash(npx -y @smithery/cli@latest mcp add upstash/context7-mcp)"
     ]
   }
 }

@@ -31,7 +31,7 @@ func main() {
 		log.Fatal("Failed to initialize MinIO client:", err)
 	}
 
-	imgng := imaging.NewImaging(cfg.MODEL_URL)
+	imgng := imaging.NewImaging(cfg.MODEL_URL, cfg.CLASSIFICATION_URL)
 
 	repo := repository.NewRepository(db)
 	services := services.NewService(cfg, repo, minioClient, imgng)

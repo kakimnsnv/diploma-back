@@ -42,7 +42,23 @@ type ProcessingJob struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 
+	ClassificationResultID *uint                 `json:"classification_result_id,omitempty"`
+	ClassificationResult   *ClassificationResult `gorm:"-" json:"classification_result,omitempty"`
+
 	User User `gorm:"foreignKey:UserID" json:"user,omitempty"`
+}
+
+type ClassificationResult struct {
+	ID                 uint           `gorm:"primarykey" json:"id"`
+	ProcessingJobID    uint           `json:"processing_job_id"`
+	PredictedClass     int            `json:"predicted_class"`
+	PredictedClassName string         `json:"predicted_class_name"`
+	Confidence         float64        `json:"confidence"`
+	ClassProbabilities string         `json:"class_probabilities"`
+	ClassNames         string         `json:"class_names"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	DeletedAt          gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type RegisterRequest struct {
@@ -69,6 +85,8 @@ type ResultResponse struct {
 	OutputImageURL string    `json:"output_image_url"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+
+	ClassificationResult *ClassificationResult `json:"classification_result,omitempty"`
 
 	Error string `json:"error"`
 }

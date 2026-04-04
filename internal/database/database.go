@@ -22,5 +22,6 @@ func MigrateDB(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&models.User{},
 		&models.ProcessingJob{},
+		&models.ClassificationResult{},
 	)
 }

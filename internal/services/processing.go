@@ -9,17 +9,21 @@ import (
 	"diploma-back/internal/storage"
 	"diploma-back/pkg/imaging"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
+	"path/filepath"
 
 	"github.com/google/uuid"
 )
 
 type ProcessingService struct {
-	config      *config.Config
-	jobRepo     *repository.JobRepository
-	minIOClient *storage.MinIOClient
-	imaging     *imaging.Imaging
+	config             *config.Config
+	jobRepo            *repository.JobRepository
+	classificationRepo *repository.ClassificationRepository
+	minIOClient        *storage.MinIOClient
+	imaging            *imaging.Imaging
 }
 
 func (s *ProcessingService) UploadImage(userID uint, file *multipart.FileHeader, ext string) (*models.ProcessingJob, error) {
@@ -92,6 +96,153 @@ func (s *ProcessingService) processImageAsync(userID uint, uniqueID string, job 
 	s.jobRepo.Save(job)
 }
 
+func (s *ProcessingService) SegmentJob(jobID string, userID uint, file *multipart.FileHeader) (*models.ProcessingJob, error) {
+	job, err := s.jobRepo.FindByIDAndUserID(jobID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+
+	if job.InputNiiPath != "" {
+		return nil, fmt.Errorf("job already has segmentation input")
+	}
+
+	fileStream, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer fileStream.Close()
+
+	uniqueID := uuid.New().String()
+	ext := filepath.Ext(file.Filename)
+	filename := fmt.Sprintf("%s%s", uniqueID, ext)
+	objectName := fmt.Sprintf("users/%d/original/%s", userID, filename)
+	_, err = s.minIOClient.UploadFile(objectName, fileStream, file.Size, file.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload file: %w", err)
+	}
+
+	job.InputNiiPath = objectName
+	job.Status = "processing"
+	s.jobRepo.Save(job)
+
+	go s.processImageAsync(userID, uniqueID, job, file)
+
+	return job, nil
+}
+
+func (s *ProcessingService) ClassifyResult(jobID string, userID uint) (*models.ClassificationResult, error) {
+	job, err := s.jobRepo.FindByIDAndUserID(jobID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("job not found: %w", err)
+	}
+
+	if job.Status != "completed" {
+		return nil, fmt.Errorf("job is not completed, current status: %s", job.Status)
+	}
+
+	if job.OutputImage == "" {
+		return nil, fmt.Errorf("job has no output image")
+	}
+
+	imageBytes, err := s.minIOClient.DownloadFile(job.OutputImage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download output image: %w", err)
+	}
+
+	filename := filepath.Base(job.OutputImage)
+	classRes, err := s.imaging.CallClassifier(imageBytes, filename)
+	if err != nil {
+		return nil, fmt.Errorf("classification failed: %w", err)
+	}
+
+	probsJSON, _ := json.Marshal(classRes.ClassProbabilities)
+	namesJSON, _ := json.Marshal(classRes.ClassNames)
+
+	result := &models.ClassificationResult{
+		ProcessingJobID:    job.ID,
+		PredictedClass:     classRes.PredictedClass,
+		PredictedClassName: classRes.PredictedClassName,
+		Confidence:         classRes.Confidence,
+		ClassProbabilities: string(probsJSON),
+		ClassNames:         string(namesJSON),
+	}
+
+	if err := s.classificationRepo.Create(result); err != nil {
+		return nil, fmt.Errorf("failed to save classification result: %w", err)
+	}
+
+	job.ClassificationResultID = &result.ID
+	if err := s.jobRepo.Save(job); err != nil {
+		return nil, fmt.Errorf("failed to update job: %w", err)
+	}
+
+	return result, nil
+}
+
+func (s *ProcessingService) ClassifyUpload(userID uint, file *multipart.FileHeader) (*models.ProcessingJob, error) {
+	fileStream, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer fileStream.Close()
+
+	fileBytes, err := io.ReadAll(fileStream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Upload image to MinIO
+	uniqueID := uuid.New().String()
+	ext := filepath.Ext(file.Filename)
+	objectName := fmt.Sprintf("users/%d/classification/%s%s", userID, uniqueID, ext)
+	reader := bytes.NewReader(fileBytes)
+	_, err = s.minIOClient.UploadFile(objectName, reader, int64(len(fileBytes)), file.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload file: %w", err)
+	}
+
+	// Create processing job
+	job := &models.ProcessingJob{
+		UserID:      userID,
+		Name:        file.Filename,
+		OutputImage: objectName,
+		Status:      "completed",
+	}
+	if err := s.jobRepo.Create(job); err != nil {
+		return nil, fmt.Errorf("failed to create job: %w", err)
+	}
+
+	// Call classifier
+	classRes, err := s.imaging.CallClassifier(fileBytes, file.Filename)
+	if err != nil {
+		job.Status = "failed"
+		job.ErrorMessage = fmt.Sprintf("Classification failed: %s", err.Error())
+		s.jobRepo.Save(job)
+		return nil, fmt.Errorf("classification failed: %w", err)
+	}
+
+	probsJSON, _ := json.Marshal(classRes.ClassProbabilities)
+	namesJSON, _ := json.Marshal(classRes.ClassNames)
+
+	result := &models.ClassificationResult{
+		ProcessingJobID:    job.ID,
+		PredictedClass:     classRes.PredictedClass,
+		PredictedClassName: classRes.PredictedClassName,
+		Confidence:         classRes.Confidence,
+		ClassProbabilities: string(probsJSON),
+		ClassNames:         string(namesJSON),
+	}
+
+	if err := s.classificationRepo.Create(result); err != nil {
+		return nil, fmt.Errorf("failed to save classification result: %w", err)
+	}
+
+	job.ClassificationResultID = &result.ID
+	s.jobRepo.Save(job)
+
+	return job, nil
+}
+
 func (s *ProcessingService) GetResult(jobID string, userID uint) (*models.ResultResponse, error) {
 	job, err := s.jobRepo.FindByIDAndUserID(jobID, userID)
 	if err != nil {
@@ -123,6 +274,13 @@ func (s *ProcessingService) GetResult(jobID string, userID uint) (*models.Result
 				fmt.Printf("error: %v", err)
 			}
 			response.InputNiiURL = url
+		}
+	}
+
+	if job.ClassificationResultID != nil {
+		classResult, err := s.classificationRepo.FindByJobID(job.ID)
+		if err == nil {
+			response.ClassificationResult = classResult
 		}
 	}
 

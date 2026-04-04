@@ -16,11 +16,12 @@ var (
 
 type (
 	Config struct {
-		App       AppConfig   `envPrefix:"APP_"`
-		DB        DB          `envPrefix:"DB_"`
-		JWT       JWTConfig   `envPrefix:"JWT_"`
-		MODEL_URL string      `env:"MODEL_URL"`
-		MinIO     MinIOConfig `envPrefix:"MINIO_"`
+		App                AppConfig   `envPrefix:"APP_"`
+		DB                 DB          `envPrefix:"DB_"`
+		JWT                JWTConfig   `envPrefix:"JWT_"`
+		MODEL_URL          string      `env:"MODEL_URL"`
+		CLASSIFICATION_URL string      `env:"CLASSIFICATION_URL" envDefault:"http://localhost:8000/classification/classify_image"`
+		MinIO              MinIOConfig `envPrefix:"MINIO_"`
 	}
 
 	AppConfig struct {
