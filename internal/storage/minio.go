@@ -13,8 +13,9 @@ import (
 )
 
 type MinIOClient struct {
-	client *minio.Client
-	bucket string
+	client        *minio.Client
+	presignClient *minio.Client
+	bucket        string
 }
 
 func NewMinIOClient(cfg *config.MinIOConfig) (*MinIOClient, error) {
@@ -24,6 +25,20 @@ func NewMinIOClient(cfg *config.MinIOConfig) (*MinIOClient, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MinIO client: %w", err)
+	}
+
+	// Separate client with public endpoint, used only to sign URLs for browser access.
+	// Falls back to the internal endpoint if PUBLIC_ENDPOINT is not set.
+	presignEndpoint := cfg.PublicEndpoint
+	if presignEndpoint == "" {
+		presignEndpoint = cfg.Endpoint
+	}
+	presignClient, err := minio.New(presignEndpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure: cfg.UseSSL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MinIO presign client: %w", err)
 	}
 
 	// Create bucket if it doesn't exist
@@ -41,14 +56,15 @@ func NewMinIOClient(cfg *config.MinIOConfig) (*MinIOClient, error) {
 	}
 
 	return &MinIOClient{
-		client: client,
-		bucket: cfg.Bucket,
+		client:        client,
+		presignClient: presignClient,
+		bucket:        cfg.Bucket,
 	}, nil
 }
 
 // GetPresignedURL generates a presigned URL for downloading
 func (m *MinIOClient) GetPresignedURL(ctx context.Context, objectName string) (string, error) {
-	url, err := m.client.PresignedGetObject(ctx, m.bucket, objectName, time.Hour, nil)
+	url, err := m.presignClient.PresignedGetObject(ctx, m.bucket, objectName, time.Hour, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
 	}

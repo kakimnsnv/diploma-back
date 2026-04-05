@@ -42,11 +42,12 @@ type (
 	}
 
 	MinIOConfig struct {
-		Endpoint  string `env:"ENDPOINT"`
-		AccessKey string `env:"ACCESS_KEY"`
-		SecretKey string `env:"SECRET_KEY"`
-		Bucket    string `env:"BUCKET"`
-		UseSSL    bool   `env:"USE_SSL"`
+		Endpoint       string `env:"ENDPOINT"`
+		PublicEndpoint string `env:"PUBLIC_ENDPOINT"`
+		AccessKey      string `env:"ACCESS_KEY"`
+		SecretKey      string `env:"SECRET_KEY"`
+		Bucket         string `env:"BUCKET"`
+		UseSSL         bool   `env:"USE_SSL"`
 	}
 )
 
