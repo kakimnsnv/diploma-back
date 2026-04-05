@@ -60,6 +60,8 @@ func CORSMiddleware() gin.HandlerFunc {
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:8002",
 			"https://mri-ai.nsnv.kz",
+			"http://139.59.137.58:3000",
+			"http://139.59.137.58",
 		}
 
 		// Check if origin is allowed
