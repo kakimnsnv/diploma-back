@@ -60,6 +60,9 @@ func (i *Imaging) CallClassifier(imageBytes []byte, filename string) (*Classific
 	_, err := i.classifyClient.R().EnableTrace().
 		SetResult(res).
 		SetMultipartField("file", filename, "image/png", bytes.NewReader(imageBytes)).
+		SetFormData(map[string]string{
+			"class_names": "Normal, Alzheimer's Disease, Mild Cognitive Impairment, Vascular Dementia",
+		}).
 		Post("")
 	if err != nil {
 		return nil, fmt.Errorf("classification request failed: %w", err)
