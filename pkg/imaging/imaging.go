@@ -12,6 +12,7 @@ import (
 
 type Imaging struct {
 	resty          *resty.Client
+	slicesClient   *resty.Client
 	classifyClient *resty.Client
 }
 
@@ -19,6 +20,12 @@ func NewImaging(modelURL string, classificationURL string) *Imaging {
 	return &Imaging{
 		resty: resty.New().
 			SetBaseURL(modelURL).
+			SetTimeout(0).
+			SetRetryCount(3).
+			SetRetryWaitTime(2 * time.Second).
+			SetRetryMaxWaitTime(10 * time.Second),
+		slicesClient: resty.New().
+			SetBaseURL(modelURL + "/slices").
 			SetTimeout(0).
 			SetRetryCount(3).
 			SetRetryWaitTime(2 * time.Second).
@@ -70,6 +77,41 @@ func (i *Imaging) CallClassifier(imageBytes []byte, filename string) (*Classific
 
 	if res.Status != "success" {
 		return nil, fmt.Errorf("classification error: %s", res.Message)
+	}
+
+	return res, nil
+}
+
+type SlicesResponse struct {
+	Status          string   `json:"status"`
+	Message         string   `json:"message"`
+	Shape           []int    `json:"shape"`
+	ClassesDetected []int    `json:"classes_detected"`
+	TotalSlices     int      `json:"total_slices"`
+	NiftiPath       string   `json:"nifti_path"`
+	Slices          []string `json:"slices"`
+}
+
+// CallModelSlices sends NII file and gets individual overlay slices
+func (i *Imaging) CallModelSlices(file *multipart.FileHeader) (*SlicesResponse, error) {
+	fileStream, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer fileStream.Close()
+
+	res := &SlicesResponse{}
+
+	_, err = i.slicesClient.R().EnableTrace().
+		SetResult(res).
+		SetMultipartField("file", file.Filename, file.Header.Get("Content-Type"), fileStream).
+		Post("")
+	if err != nil {
+		return nil, fmt.Errorf("slices request failed: %w", err)
+	}
+
+	if res.Status != "success" {
+		return nil, fmt.Errorf("slices error: %s", res.Message)
 	}
 
 	return res, nil

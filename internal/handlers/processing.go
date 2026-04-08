@@ -23,6 +23,7 @@ func (h *Handler) InitProcessingRoutes() {
 		protected.POST("/results/:id/segment", h.SegmentJob)
 		protected.DELETE("/results/:id", h.DeleteResult)
 		protected.POST("/classify", h.ClassifyUpload)
+		protected.POST("/slices", h.GetSlices)
 		protected.GET("/history", h.GetHistory)
 	}
 }
@@ -147,6 +148,30 @@ func (h *Handler) DeleteResult(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Result deleted successfully"})
+}
+
+func (h *Handler) GetSlices(c *gin.Context) {
+	userID := c.GetUint("userID")
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file provided"})
+		return
+	}
+
+	ext := filepath.Ext(file.Filename)
+	if ext != ".nii" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only NII files are allowed"})
+		return
+	}
+
+	result, err := h.Services.ProcessingService.GetSlices(userID, file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *Handler) GetHistory(c *gin.Context) {

@@ -243,6 +243,14 @@ func (s *ProcessingService) ClassifyUpload(userID uint, file *multipart.FileHead
 	return job, nil
 }
 
+func (s *ProcessingService) GetSlices(userID uint, file *multipart.FileHeader) (*imaging.SlicesResponse, error) {
+	res, err := s.imaging.CallModelSlices(file)
+	if err != nil {
+		return nil, fmt.Errorf("slices inference failed: %w", err)
+	}
+	return res, nil
+}
+
 func (s *ProcessingService) GetResult(jobID string, userID uint) (*models.ResultResponse, error) {
 	job, err := s.jobRepo.FindByIDAndUserID(jobID, userID)
 	if err != nil {
