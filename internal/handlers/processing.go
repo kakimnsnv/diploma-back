@@ -4,6 +4,7 @@ import (
 	"diploma-back/internal/middleware"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -123,7 +124,8 @@ func (h *Handler) ClassifyUpload(c *gin.Context) {
 	}
 
 	ext := filepath.Ext(file.Filename)
-	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".tiff" && ext != ".nii" && ext != ".nii.gz" {
+	isNifti := ext == ".nii" || strings.HasSuffix(file.Filename, ".nii.gz")
+	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".tiff" && !isNifti {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Only PNG, JPG, TIFF, and NIfTI files are allowed"})
 		return
 	}
