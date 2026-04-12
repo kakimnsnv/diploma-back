@@ -123,8 +123,8 @@ func (h *Handler) ClassifyUpload(c *gin.Context) {
 	}
 
 	ext := filepath.Ext(file.Filename)
-	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".tiff" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only PNG, JPG, and TIFF files are allowed"})
+	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".tiff" && ext != ".nii" && ext != ".nii.gz" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only PNG, JPG, TIFF, and NIfTI files are allowed"})
 		return
 	}
 
